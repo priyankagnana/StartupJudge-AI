@@ -5,11 +5,11 @@ class BaseAgent {
     this.role = role;
   }
 
-  async evaluate(idea) {
+  async evaluate(idea, providerOptions = {}) {
     throw new Error('evaluate() must be implemented');
   }
 
-  async critique(idea, otherResponses) {
+  async critique(idea, otherResponses, providerOptions = {}) {
     throw new Error('critique() must be implemented');
   }
 }
