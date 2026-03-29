@@ -8,34 +8,27 @@ class CFOAgent extends BaseAgent {
     super('CFO');
   }
 
-  async evaluate(idea) {
-    const prompt = `
-You are a CFO. Evaluate the following startup idea.
+  async evaluate(idea, providerOptions = {}) {
+    const prompt = `You are a CFO evaluating a startup idea. Analyze: cost structure, revenue model, burn rate risk, margin sustainability, funding dependency, capital efficiency.
 
-Focus on:
-- cost structure
-- revenue model
-- profitability
-- financial risks
+Startup Idea: ${idea}
 
-Startup Idea:
-${idea}
-`;
+Respond in 150 words max. Return ONLY valid JSON:
+{"assessment": "<2-3 sentence analysis>", "score": <0-100 feasibility>, "risks": ["<risk1>", "<risk2>"], "recommendation": "<1 sentence>"}`;
 
-    return await generateResponse(prompt);
+    return generateResponse(prompt, providerOptions);
   }
 
-  async critique(idea, otherResponses) {
-    const prompt = `
-You are a CFO reviewing other experts' opinions.
+  async critique(idea, summary, providerOptions = {}) {
+    const prompt = `You are a CFO reviewing other experts' evaluations of this startup idea.
 
-Other responses:
-${otherResponses.join('\n\n')}
+Expert summaries:
+${summary}
 
-Give financial critique.
-`;
+Identify financial concerns others missed and note where you agree or disagree. Respond in 150 words max. Return ONLY valid JSON:
+{"critique": "<your financial critique>", "agreements": ["<point1>"], "disagreements": ["<point1>"]}`;
 
-    return await generateResponse(prompt);
+    return generateResponse(prompt, providerOptions);
   }
 }
 

@@ -1,3 +1,5 @@
+// src/agents/ctoAgent.js
+
 const BaseAgent = require('./baseAgent');
 const { generateResponse } = require('../utils/aiClient');
 
@@ -6,31 +8,27 @@ class CTOAgent extends BaseAgent {
     super('CTO');
   }
 
-  async evaluate(idea) {
-    const prompt = `
-You are a CTO. Evaluate this startup idea.
+  async evaluate(idea, providerOptions = {}) {
+    const prompt = `You are a CTO evaluating a startup idea. Analyze: technical feasibility, system complexity, scalability challenges, infrastructure requirements, engineering risk.
 
-Focus on:
-- technical feasibility
-- scalability
-- complexity
-- infrastructure needs
+Startup Idea: ${idea}
 
-Idea:
-${idea}
-`;
-    return generateResponse(prompt);
+Respond in 150 words max. Return ONLY valid JSON:
+{"assessment": "<2-3 sentence analysis>", "score": <0-100 feasibility>, "risks": ["<risk1>", "<risk2>"], "recommendation": "<1 sentence>"}`;
+
+    return generateResponse(prompt, providerOptions);
   }
 
-  async critique(idea, responses) {
-    const prompt = `
-You are a CTO reviewing other opinions:
+  async critique(idea, summary, providerOptions = {}) {
+    const prompt = `You are a CTO reviewing other experts' evaluations of this startup idea.
 
-${responses.join('\n\n')}
+Expert summaries:
+${summary}
 
-Give technical critique.
-`;
-    return generateResponse(prompt);
+Identify technical concerns others missed and note where you agree or disagree. Respond in 150 words max. Return ONLY valid JSON:
+{"critique": "<your technical critique>", "agreements": ["<point1>"], "disagreements": ["<point1>"]}`;
+
+    return generateResponse(prompt, providerOptions);
   }
 }
 
