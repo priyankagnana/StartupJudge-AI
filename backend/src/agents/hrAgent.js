@@ -1,3 +1,5 @@
+// src/agents/hrAgent.js
+
 const BaseAgent = require('./baseAgent');
 const { generateResponse } = require('../utils/aiClient');
 
@@ -6,29 +8,27 @@ class HRAgent extends BaseAgent {
     super('HR');
   }
 
-  async evaluate(idea) {
-    const prompt = `
-You are an HR expert.
+  async evaluate(idea, providerOptions = {}) {
+    const prompt = `You are an HR/Talent Advisor evaluating a startup idea. Analyze: hiring difficulty, talent availability, skill specialization needs, team dependency risk, founder workload pressure, compensation burden.
 
-Analyze:
-- hiring difficulty
-- team size
-- skill requirements
-- cost of talent
+Startup Idea: ${idea}
 
-Idea:
-${idea}
-`;
-    return generateResponse(prompt);
+Respond in 150 words max. Return ONLY valid JSON:
+{"assessment": "<2-3 sentence analysis>", "score": <0-100 feasibility>, "risks": ["<risk1>", "<risk2>"], "recommendation": "<1 sentence>"}`;
+
+    return generateResponse(prompt, providerOptions);
   }
 
-  async critique(idea, responses) {
-    const prompt = `
-Evaluate team challenges based on:
+  async critique(idea, summary, providerOptions = {}) {
+    const prompt = `You are an HR/Talent Advisor reviewing other experts' evaluations of this startup idea.
 
-${responses.join('\n\n')}
-`;
-    return generateResponse(prompt);
+Expert summaries:
+${summary}
+
+Identify talent/team concerns others missed and note where you agree or disagree. Respond in 150 words max. Return ONLY valid JSON:
+{"critique": "<your talent critique>", "agreements": ["<point1>"], "disagreements": ["<point1>"]}`;
+
+    return generateResponse(prompt, providerOptions);
   }
 }
 
