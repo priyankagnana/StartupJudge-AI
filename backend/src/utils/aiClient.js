@@ -1,35 +1,67 @@
 // src/utils/aiClient.js
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { createProvider } = require('../providers/providerFactory');
 
-// Initialize Gemini with the API key from environment variables
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const KEY_MAP = {
+  cerebras: 'CEREBRAS_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  groq: 'GROQ_API_KEY',
+};
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const FALLBACK_CHAIN = {
+  cerebras: ['gemini', 'groq'],
+  gemini: ['cerebras', 'groq'],
+  groq: ['cerebras', 'gemini'],
+};
 
-const generateResponse = async (prompt, retries = 3) => {
-  // Use the fast and efficient gemini-2.5-flash model
-  const model = genAI.getGenerativeModel({ 
-    model: 'gemini-2.5-flash',
-    systemInstruction: 'You are an expert startup advisor.'
-  });
+function resolveProvider(providerName, apiKey) {
+  const name = providerName || process.env.DEFAULT_PROVIDER || 'cerebras';
+  const key = apiKey || process.env[KEY_MAP[name]];
+  if (!key) return null;
+  try {
+    return { provider: createProvider(name, key), name };
+  } catch {
+    return null;
+  }
+}
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return response.text();
-    } catch (error) {
-      if (error.status === 429 || (error.message && error.message.includes('429'))) {
-        const waitTime = attempt * 15000; // wait 15s, 30s, 45s
-        console.warn(`[429 Quota Exceeded] Retrying attempt ${attempt} in ${waitTime/1000} seconds...`);
-        if (attempt === retries) throw new Error(`Google API Rate Limit Exceeded. Please try again in 1 minute.`);
-        await sleep(waitTime);
-        continue;
+const generateResponse = async (prompt, options = {}) => {
+  const { provider: providerName, apiKey, maxTokens = 400 } = options;
+
+  const primaryName = providerName || process.env.DEFAULT_PROVIDER || 'cerebras';
+  const primary = resolveProvider(primaryName, apiKey);
+  if (!primary) throw new Error(`No valid API key configured for ${primaryName}`);
+
+  try {
+    return await primary.provider.generate(prompt, { maxTokens });
+  } catch (error) {
+    const shouldFallback = error.status === 429 || error.status === 402
+      || error.message?.includes('429') || error.message?.includes('402')
+      || error.message?.includes('rate limit') || error.message?.includes('quota')
+      || error.message?.includes('PAYMENT') || error.message?.includes('balance');
+
+    if (shouldFallback) {
+      const fallbacks = FALLBACK_CHAIN[primary.name] || [];
+      for (const fallbackName of fallbacks) {
+        const fallback = resolveProvider(fallbackName);
+        if (!fallback) continue;
+
+        console.log(`[Fallback] ${primary.name} failed → trying ${fallbackName}...`);
+        try {
+          return await fallback.provider.generate(prompt, { maxTokens });
+        } catch (fallbackError) {
+          const fallbackFailed = fallbackError.message?.includes('429') || fallbackError.message?.includes('402')
+            || fallbackError.message?.includes('rate limit') || fallbackError.message?.includes('PAYMENT');
+          if (fallbackFailed) {
+            console.warn(`[Fallback] ${fallbackName} also failed, trying next...`);
+            continue;
+          }
+          throw fallbackError;
+        }
       }
-      console.error("Gemini API Error:", error);
-      throw error;
+      throw new Error('All API providers are rate limited. Please wait a few minutes or add your own API key.');
     }
+    throw error;
   }
 };
 
