@@ -6,41 +6,60 @@ const decisionService = require('./decisionService');
 const cacheService = require('./cacheService');
 const { generateResponse } = require('../utils/aiClient');
 
+function cleanResponse(text) {
+  // Strip control characters (DEL, backspace, etc.) that corrupt JSON
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]+/g, '');
+}
+
 function parseJSON(text) {
+  const cleaned = cleanResponse(text);
   try {
-    return JSON.parse(text);
+    return JSON.parse(cleaned);
   } catch {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    // Try extracting from markdown code blocks
+    const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match) {
       try { return JSON.parse(match[1].trim()); } catch { /* fall through */ }
     }
-    const braceMatch = text.match(/\{[\s\S]*\}/);
+    // Try finding the outermost JSON object
+    const braceMatch = cleaned.match(/\{[\s\S]*\}/);
     if (braceMatch) {
       try { return JSON.parse(braceMatch[0]); } catch { /* fall through */ }
+    }
+    // Try truncating at the last complete agent entry (fix for truncated responses)
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace > 0) {
+      // Find matching depth — try progressively shorter substrings
+      for (let i = lastBrace; i > 0; i--) {
+        if (cleaned[i] === '}') {
+          const candidate = cleaned.substring(0, i + 1);
+          try { return JSON.parse(candidate); } catch { /* try shorter */ }
+        }
+      }
     }
     return null;
   }
 }
 
-// Agent personas — detailed background + personality + focus areas
+// Agent personas — Indian context, INR pricing, Indian market references
 const AGENT_PERSONAS = {
-  CFO: `CFO — Priya Sharma, 15 years in startup finance, ex-Goldman Sachs analyst turned startup CFO. Funded 3 startups through Series B. She's the "show me the numbers" person — skeptical of hype, obsessed with unit economics, and will kill any idea that can't show a path to profitability within 18 months. She speaks in hard numbers and comparisons to known business models.
-  MUST EVALUATE: unit economics (CAC vs LTV with estimates), revenue model viability, burn rate vs runway, funding requirements and dilution, path to profitability timeline. Give specific dollar estimates or ratios where possible.`,
+  CFO: `CFO — Priya Sharma, 15 years in startup finance, ex-Kotak Investment Banking turned startup CFO. Funded 3 Indian startups through Series B including a Shark Tank India featured brand. She's the "show me the numbers" person — skeptical of hype, obsessed with unit economics, and will kill any idea that can't show a path to profitability within 18 months. She speaks in hard numbers, references Indian market benchmarks, and compares to known Indian business models (Zerodha, Zomato, Razorpay). She uses INR for all estimates.
+  MUST EVALUATE: unit economics (CAC vs LTV in INR), revenue model viability in Indian market, burn rate vs runway, funding requirements (seed/pre-seed in Indian context), path to profitability timeline. Give specific INR estimates or ratios. Reference Indian startup benchmarks where possible.`,
 
-  CTO: `CTO — Arjun Mehta, 12 years building scalable systems, ex-senior engineer at Google and early engineer at a YC startup that scaled to 10M users. He thinks in systems, APIs, and architecture diagrams. He's optimistic about what tech CAN do but brutally honest about build timelines — he's seen too many founders underestimate by 3x. He names specific technologies and gives realistic MVP timelines.
-  MUST EVALUATE: technical architecture needed (name specific tech stack), third-party API dependencies and their real limits, MVP build complexity (in weeks), scalability bottlenecks, build-vs-buy decisions. Be specific about technologies, frameworks, and infrastructure.`,
+  CTO: `CTO — Arjun Mehta, 12 years building scalable systems, ex-senior engineer at Flipkart and early engineer at a YC-backed Indian startup that scaled to 10M users. He thinks in systems, APIs, and architecture diagrams. He's optimistic about what tech CAN do but brutally honest about build timelines — he's seen too many Indian founders underestimate by 3x. He names specific technologies, references Indian infra challenges (Jio network, UPI integration, Aadhaar APIs), and gives realistic MVP timelines.
+  MUST EVALUATE: technical architecture needed (name specific tech stack), third-party API dependencies and their real limits (Razorpay, UPI, Aadhaar, Indian cloud pricing), MVP build complexity (in weeks), scalability for Indian user base (Tier 2/3 cities, low bandwidth), build-vs-buy decisions. Be specific about technologies, frameworks, and Indian infrastructure.`,
 
-  Legal: `Legal Advisor — Sarah Chen, 10 years in tech law, partner at a firm specializing in startup compliance. She's seen startups get sued, shut down by regulators, and lose everything to ToS violations. She's cautious by nature and will always flag the worst-case scenario. She names specific laws, regulations, and precedent cases.
-  MUST EVALUATE: specific regulations (COPPA, GDPR, DMCA, platform ToS by name), IP and copyright risks, licensing requirements, data privacy obligations, platform dependency risks. Reference specific legal precedents or real enforcement actions where relevant.`,
+  Legal: `Legal Advisor — Kavita Iyer, 10 years in Indian tech law, partner at a Bangalore firm specializing in startup compliance. She's seen Indian startups get shut down by RBI, MCA, and DPIIT. She's cautious by nature and will always flag the worst-case scenario. She references specific Indian laws — IT Act, DPDPA 2023, FEMA, Companies Act, GST compliance, FSSAI (for food), RBI guidelines (for fintech).
+  MUST EVALUATE: specific Indian regulations (DPDPA 2023, IT Act Section 43A, RBI guidelines, SEBI, FSSAI, state-level licenses), GST implications, startup India registration benefits, data localization requirements, platform dependency risks. Reference specific Indian legal cases or enforcement actions where relevant.`,
 
-  Marketing: `Marketing Strategist — Rahul Kapoor, 8 years in growth marketing, scaled two D2C startups from 0 to 500K users. He's the most bullish person in the room — he sees opportunity everywhere. But he's not naive — he knows exactly which channels work at which stage and how much they cost. He thinks in funnels, cohorts, and viral coefficients. He names specific marketing channels and tactics.
-  MUST EVALUATE: specific target user persona (age, behavior, pain point), go-to-market channels with estimated costs (e.g. "Instagram Reels targeting 18-24 students, ~$2 CPM"), competitive positioning, viral/growth mechanics, pricing strategy with specific tiers. Be actionable and specific.`,
+  Marketing: `Marketing Strategist — Rahul Kapoor, 8 years in growth marketing in India, scaled two Indian D2C startups from 0 to 5 lakh users. He built growth for brands featured on Shark Tank India. He's the most bullish person in the room — he sees opportunity everywhere. He knows Indian digital marketing costs: Instagram Reels CPM (~₹50-80), Google Ads CPC (~₹15-30), WhatsApp Business costs, and influencer rates on Indian platforms. He thinks in funnels, cohorts, and viral coefficients for Indian audiences.
+  MUST EVALUATE: specific Indian target user persona (age, city tier, language, behavior), go-to-market channels with INR costs (e.g. "Instagram Reels targeting 18-24 college students in Tier 2 cities, ~₹60 CPM"), competitive positioning in Indian market, WhatsApp/Telegram growth tactics, pricing strategy in INR for Indian purchasing power. Be actionable and India-specific.`,
 
-  HR: `HR/Talent Advisor — Meera Patel, 9 years in talent acquisition for tech startups, built teams from 3 to 150 people. She's practical and no-nonsense — she knows exactly what roles cost, how hard they are to hire, and where founders overestimate their own abilities. She names specific job titles, salary ranges, and hiring timelines.
-  MUST EVALUATE: specific roles needed for MVP (job titles + seniority), realistic hiring timeline, salary expectations in the market, founder skill gaps that need covering, remote vs on-site trade-offs, advisor/mentor needs. Name specific roles like "Senior Full-Stack Engineer ($120-160K)" not just "developers."`,
+  HR: `HR/Talent Advisor — Meera Patel, 9 years in talent acquisition for Indian tech startups in Bangalore and Mumbai, built teams from 3 to 150 people. She's practical and no-nonsense — she knows Indian tech hiring market inside out. She quotes salaries in LPA (lakhs per annum), knows Tier 1 vs Tier 2 city hiring dynamics, and understands the competition from Infosys/TCS/Wipro for freshers and from FAANG for seniors.
+  MUST EVALUATE: specific roles needed for MVP (job titles + seniority), realistic hiring timeline in Indian market, salary expectations in LPA (e.g. "Senior Full-Stack Engineer 18-25 LPA in Bangalore"), founder skill gaps, remote vs Bangalore/Mumbai trade-offs, internship/fresher leverage. Name specific roles with Indian salary ranges.`,
 
-  'Market Research': `Market Research Analyst — Vikram Rao, 11 years in market intelligence, ex-McKinsey consultant who now advises startups on market entry. He's the data person — he doesn't have opinions, he has data. He'll name competitors, quote market sizes, and reference real reports. He's skeptical of "no competition" claims and will always find who else is doing something similar.
-  MUST EVALUATE: name 2-3 real direct/indirect competitors with their strengths and weaknesses, total addressable market (TAM) with rough $ sizing, market timing analysis (why now, not 2 years ago?), underserved user segments, switching costs, entry barriers. Use specific company names and market data.`,
+  'Market Research': `Market Research Analyst — Vikram Rao, 11 years in market intelligence, ex-Bain India consultant who now advises startups on Indian market entry. He's the data person — he doesn't have opinions, he has data. He references RedSeer, Redseer Moments, Inc42, and Tracxn reports. He names Indian competitors, quotes Indian market sizes, and understands Tier 1/2/3 city dynamics. He's skeptical of "no competition" claims and will always find who else in India is doing something similar.
+  MUST EVALUATE: name 2-3 real Indian direct/indirect competitors with their strengths and weaknesses, total addressable market (TAM) in INR with rough sizing, market timing analysis for India (why now?), underserved segments in Tier 2/3 cities, UPI/digital India tailwinds, entry barriers in Indian market. Use specific Indian company names and market data.`,
 };
 
 const ROLE_NAMES = Object.keys(AGENT_PERSONAS);
@@ -85,10 +104,10 @@ Startup Idea: "${idea}"
 EXPERT PERSONALITIES (stay in character):
 - Priya (CFO): Skeptical, numbers-obsessed. She'll challenge anyone who doesn't show financial viability. Talks in CAC, LTV, burn rate.
 - Arjun (CTO): Optimistic about tech but realistic about timelines. He'll call out anyone who underestimates build complexity. Talks in tech stack, APIs, sprints.
-- Sarah (Legal): Cautious, worst-case thinker. She'll flag risks everyone else is ignoring. Talks in regulations, ToS, precedent.
-- Rahul (Marketing): Bullish, opportunity-focused. He'll push back on pessimists and argue for market potential. Talks in channels, funnels, viral loops.
-- Meera (HR): Practical, grounded. She'll reality-check hiring plans and challenge unrealistic team assumptions. Talks in roles, salaries, timelines.
-- Vikram (Market Research): Data-driven, neutral. He'll counter opinions with competitor data and market numbers. Talks in TAM, competitors, trends.
+- Kavita (Legal): Cautious, worst-case thinker. She'll flag risks everyone else is ignoring. Talks in Indian regulations — DPDPA, IT Act, RBI, FSSAI, GST.
+- Rahul (Marketing): Bullish, opportunity-focused. He'll push back on pessimists and argue for Indian market potential. Talks in channels, funnels, viral loops, WhatsApp growth. Uses INR.
+- Meera (HR): Practical, grounded. She'll reality-check hiring plans with Indian market salaries in LPA. Talks in roles, Bangalore/Mumbai hiring, fresher vs senior dynamics.
+- Vikram (Market Research): Data-driven, neutral. He'll counter opinions with Indian competitor data, Inc42 reports, and Tracxn numbers. Uses INR for market sizing.
 
 Round 1 Evaluations:
 ${round1Summary}
@@ -164,10 +183,21 @@ exports.runSimulation = async (idea, options = {}) => {
   if (round1Parsed) {
     results = processRound1(round1Parsed, memory);
   } else {
-    console.warn('[Round 1] JSON parse failed — using raw text fallback');
+    console.warn('[Round 1] JSON parse failed — attempting partial extraction');
     results = {};
+    const cleaned = cleanResponse(round1Raw);
     for (const role of ROLE_NAMES) {
-      results[role] = { round1: round1Raw.substring(0, 300), round1Parsed: { assessment: 'Parse error — raw response used', score: 50, risks: [], recommendation: '' } };
+      // Try to extract individual agent JSON from the raw response
+      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
+      const roleMatch = cleaned.match(roleRegex);
+      if (roleMatch) {
+        try {
+          const agentData = JSON.parse(roleMatch[1]);
+          results[role] = { round1: agentData.assessment || 'Evaluation received', round1Parsed: agentData };
+          continue;
+        } catch { /* fall through */ }
+      }
+      results[role] = { round1: 'Evaluation could not be parsed. Please try again.', round1Parsed: { assessment: 'Evaluation could not be parsed', score: 50, risks: [], recommendation: '' } };
     }
   }
   console.log('[Round 1] Complete');
@@ -184,12 +214,22 @@ exports.runSimulation = async (idea, options = {}) => {
   if (round2Parsed) {
     processRound2(round2Parsed, results, memory);
   } else {
-    console.warn('[Round 2] JSON parse failed — using raw text fallback');
+    console.warn('[Round 2] JSON parse failed — attempting partial extraction');
+    const cleaned = cleanResponse(round2Raw);
     for (const role of ROLE_NAMES) {
-      if (results[role]) {
-        results[role].round2 = round2Raw.substring(0, 300);
-        results[role].round2Parsed = { critique: 'Parse error — raw response used', agreements: [], disagreements: [] };
+      if (!results[role]) continue;
+      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
+      const roleMatch = cleaned.match(roleRegex);
+      if (roleMatch) {
+        try {
+          const agentData = JSON.parse(roleMatch[1]);
+          results[role].round2 = agentData.critique || 'Critique received';
+          results[role].round2Parsed = agentData;
+          continue;
+        } catch { /* fall through */ }
       }
+      results[role].round2 = 'Critique could not be parsed. Please try again.';
+      results[role].round2Parsed = { critique: 'Critique could not be parsed', agreements: [], disagreements: [] };
     }
   }
   console.log('[Round 2] Complete');
@@ -207,6 +247,112 @@ exports.runSimulation = async (idea, options = {}) => {
   console.log('[Output] Total response size:', JSON.stringify(output).length, 'chars');
   if (!apiKey) cacheService.set(idea, providerName, output);
   return output;
+};
+
+// ========== Per-round mode — 3 separate calls from frontend ==========
+
+exports.runRound1 = async (idea, options = {}) => {
+  const { provider, apiKey } = options;
+  const providerName = provider || process.env.DEFAULT_PROVIDER || 'cerebras';
+  const providerOptions = { provider: providerName, apiKey };
+
+  console.log('[Round 1] Calling AI for all 6 agent evaluations...');
+  const round1Raw = await generateResponse(buildRound1Prompt(idea), { ...providerOptions, maxTokens: 3000 });
+  console.log('[Round 1] Raw response (first 300 chars):', round1Raw.substring(0, 300));
+  const round1Parsed = parseJSON(round1Raw);
+
+  const results = {};
+  if (round1Parsed) {
+    for (const role of ROLE_NAMES) {
+      const agentData = round1Parsed[role] || null;
+      results[role] = agentData
+        ? { assessment: agentData.assessment || '', score: agentData.score, risks: agentData.risks || [], recommendation: agentData.recommendation || '' }
+        : { assessment: 'No evaluation generated', score: 50, risks: [], recommendation: '' };
+    }
+  } else {
+    console.warn('[Round 1] JSON parse failed — partial extraction');
+    const cleaned = cleanResponse(round1Raw);
+    for (const role of ROLE_NAMES) {
+      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
+      const roleMatch = cleaned.match(roleRegex);
+      if (roleMatch) {
+        try {
+          const agentData = JSON.parse(roleMatch[1]);
+          results[role] = { assessment: agentData.assessment || '', score: agentData.score || 50, risks: agentData.risks || [], recommendation: agentData.recommendation || '' };
+          continue;
+        } catch { /* fall through */ }
+      }
+      results[role] = { assessment: 'Evaluation could not be parsed', score: 50, risks: [], recommendation: '' };
+    }
+  }
+  console.log('[Round 1] Complete');
+  return { agents: results };
+};
+
+exports.runRound2 = async (idea, round1Agents, options = {}) => {
+  const { provider, apiKey } = options;
+  const providerName = provider || process.env.DEFAULT_PROVIDER || 'cerebras';
+  const providerOptions = { provider: providerName, apiKey };
+
+  // Build summary from Round 1 results
+  const summary = ROLE_NAMES.map(role => {
+    const a = round1Agents[role];
+    return `${role}: Score ${a?.score ?? 'N/A'}/100. ${a?.assessment ?? ''}`;
+  }).join('\n');
+
+  console.log('[Round 2] Calling AI for all 6 agent critiques...');
+  const round2Raw = await generateResponse(buildRound2Prompt(idea, summary), { ...providerOptions, maxTokens: 3000 });
+  console.log('[Round 2] Raw response (first 300 chars):', round2Raw.substring(0, 300));
+  const round2Parsed = parseJSON(round2Raw);
+
+  const results = {};
+  if (round2Parsed) {
+    for (const role of ROLE_NAMES) {
+      const agentData = round2Parsed[role] || null;
+      results[role] = agentData
+        ? { critique: agentData.critique || '', agreements: agentData.agreements || [], disagreements: agentData.disagreements || [] }
+        : { critique: 'No critique generated', agreements: [], disagreements: [] };
+    }
+  } else {
+    console.warn('[Round 2] JSON parse failed — partial extraction');
+    const cleaned = cleanResponse(round2Raw);
+    for (const role of ROLE_NAMES) {
+      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
+      const roleMatch = cleaned.match(roleRegex);
+      if (roleMatch) {
+        try {
+          const agentData = JSON.parse(roleMatch[1]);
+          results[role] = { critique: agentData.critique || '', agreements: agentData.agreements || [], disagreements: agentData.disagreements || [] };
+          continue;
+        } catch { /* fall through */ }
+      }
+      results[role] = { critique: 'Critique could not be parsed', agreements: [], disagreements: [] };
+    }
+  }
+  console.log('[Round 2] Complete');
+  return { agents: results };
+};
+
+exports.runDecision = async (idea, round1Agents, round2Agents, options = {}) => {
+  const { provider, apiKey } = options;
+  const providerName = provider || process.env.DEFAULT_PROVIDER || 'cerebras';
+  const providerOptions = { provider: providerName, apiKey };
+
+  // Merge round1 + round2 into the format decisionService expects
+  const mergedResults = {};
+  for (const role of ROLE_NAMES) {
+    mergedResults[role] = {
+      round1: round1Agents[role]?.assessment || '',
+      round1Parsed: round1Agents[role] || null,
+      round2: round2Agents[role]?.critique || '',
+      round2Parsed: round2Agents[role] || null,
+    };
+  }
+
+  console.log('[Decision] Synthesizing final verdict...');
+  const finalDecision = await decisionService.generateDecision(mergedResults, providerOptions);
+  console.log('[Decision] Complete —', finalDecision?.decision, finalDecision?.score);
+  return finalDecision;
 };
 
 // ========== Stream mode — emits SSE events progressively ==========

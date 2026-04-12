@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 const AGENT_CONFIG = {
   CFO: { color: '#22c55e', name: 'Priya Sharma' },
   CTO: { color: '#3b82f6', name: 'Arjun Mehta' },
-  Legal: { color: '#f59e0b', name: 'Sarah Chen' },
+  Legal: { color: '#f59e0b', name: 'Kavita Iyer' },
   Marketing: { color: '#a855f7', name: 'Rahul Kapoor' },
   HR: { color: '#ec4899', name: 'Meera Patel' },
   'Market Research': { color: '#06b6d4', name: 'Vikram Rao' },

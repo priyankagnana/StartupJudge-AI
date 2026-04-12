@@ -7,7 +7,7 @@ import {
 const AGENTS = [
   { id: 'CFO', icon: Building2, name: 'Priya', role: 'CFO', color: '#22c55e' },
   { id: 'CTO', icon: Code2, name: 'Arjun', role: 'CTO', color: '#3b82f6' },
-  { id: 'Legal', icon: Scale, name: 'Sarah', role: 'Legal', color: '#f59e0b' },
+  { id: 'Legal', icon: Scale, name: 'Kavita', role: 'Legal', color: '#f59e0b' },
   { id: 'Marketing', icon: LineChart, name: 'Rahul', role: 'Marketing', color: '#a855f7' },
   { id: 'HR', icon: Users, name: 'Meera', role: 'HR', color: '#ec4899' },
   { id: 'Market Research', icon: PieChart, name: 'Vikram', role: 'Research', color: '#06b6d4' },
