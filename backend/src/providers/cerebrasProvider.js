@@ -12,7 +12,7 @@ class CerebrasProvider extends BaseProvider {
   }
 
   async generate(prompt, options = {}) {
-    const { maxTokens = 400, retries = 1 } = options;
+    const { maxTokens = 400, retries = 2 } = options;
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -48,9 +48,22 @@ class CerebrasProvider extends BaseProvider {
         }
 
         const data = await response.json();
-        return data.choices[0].message.content;
+        const content = data.choices[0].message.content;
+
+        // Detect garbage responses (control chars filling >10% of output)
+        const controlChars = (content.match(/[\x00-\x1F\x7F]/g) || []).length;
+        if (controlChars > content.length * 0.1) {
+          console.warn(`[Cerebras] Garbage response detected (${controlChars}/${content.length} control chars), retry ${attempt}/${retries}`);
+          if (attempt < retries) { await sleep(2000); continue; }
+          // Last attempt — still return it, cleanResponse will strip the junk
+        }
+
+        return content;
       } catch (error) {
-        if (error.message?.includes('429') && attempt < retries) continue;
+        if ((error.message?.includes('429') || error.message?.includes('503')) && attempt < retries) {
+          await sleep(attempt * 5000);
+          continue;
+        }
         throw error;
       }
     }

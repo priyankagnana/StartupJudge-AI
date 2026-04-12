@@ -11,6 +11,35 @@ function cleanResponse(text) {
   return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]+/g, '');
 }
 
+// Extract a brace-balanced JSON object starting at a given index
+function extractBalancedObject(text, startIdx) {
+  if (text[startIdx] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return text.substring(startIdx, i + 1); }
+  }
+  return null;
+}
+
+// Extract a single agent's JSON object from a raw response
+function extractAgentJSON(cleaned, role) {
+  const keyPattern = new RegExp(`"${role}"\\s*:\\s*\\{`);
+  const match = keyPattern.exec(cleaned);
+  if (!match) return null;
+  const objStart = cleaned.indexOf('{', match.index + match[0].length - 1);
+  const objStr = extractBalancedObject(cleaned, objStart);
+  if (!objStr) return null;
+  try { return JSON.parse(objStr); } catch { return null; }
+}
+
 function parseJSON(text) {
   const cleaned = cleanResponse(text);
   try {
@@ -176,7 +205,7 @@ exports.runSimulation = async (idea, options = {}) => {
 
   // Round 1 — ONE API call for all 6 agents
   console.log('[Round 1] Calling AI for all 6 agent evaluations...');
-  const round1Raw = await generateResponse(buildRound1Prompt(idea), { ...providerOptions, maxTokens: 3000 });
+  const round1Raw = await generateResponse(buildRound1Prompt(idea), { ...providerOptions, maxTokens: 6500 });
   console.log('[Round 1] Raw response (first 500 chars):', round1Raw.substring(0, 500));
   const round1Parsed = parseJSON(round1Raw);
   let results;
@@ -187,17 +216,12 @@ exports.runSimulation = async (idea, options = {}) => {
     results = {};
     const cleaned = cleanResponse(round1Raw);
     for (const role of ROLE_NAMES) {
-      // Try to extract individual agent JSON from the raw response
-      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
-      const roleMatch = cleaned.match(roleRegex);
-      if (roleMatch) {
-        try {
-          const agentData = JSON.parse(roleMatch[1]);
-          results[role] = { round1: agentData.assessment || 'Evaluation received', round1Parsed: agentData };
-          continue;
-        } catch { /* fall through */ }
+      const agentData = extractAgentJSON(cleaned, role);
+      if (agentData) {
+        results[role] = { round1: agentData.assessment || 'Evaluation received', round1Parsed: agentData };
+      } else {
+        results[role] = { round1: 'Evaluation could not be parsed. Please try again.', round1Parsed: { assessment: 'Evaluation could not be parsed', score: 50, risks: [], recommendation: '' } };
       }
-      results[role] = { round1: 'Evaluation could not be parsed. Please try again.', round1Parsed: { assessment: 'Evaluation could not be parsed', score: 50, risks: [], recommendation: '' } };
     }
   }
   console.log('[Round 1] Complete');
@@ -208,7 +232,7 @@ exports.runSimulation = async (idea, options = {}) => {
   // Round 2 — ONE API call for all 6 agent critiques
   const summary = memory.getSummary();
   console.log('[Round 2] Calling AI for all 6 agent critiques...');
-  const round2Raw = await generateResponse(buildRound2Prompt(idea, summary), { ...providerOptions, maxTokens: 3000 });
+  const round2Raw = await generateResponse(buildRound2Prompt(idea, summary), { ...providerOptions, maxTokens: 4500 });
   console.log('[Round 2] Raw response (first 500 chars):', round2Raw.substring(0, 500));
   const round2Parsed = parseJSON(round2Raw);
   if (round2Parsed) {
@@ -218,18 +242,14 @@ exports.runSimulation = async (idea, options = {}) => {
     const cleaned = cleanResponse(round2Raw);
     for (const role of ROLE_NAMES) {
       if (!results[role]) continue;
-      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
-      const roleMatch = cleaned.match(roleRegex);
-      if (roleMatch) {
-        try {
-          const agentData = JSON.parse(roleMatch[1]);
-          results[role].round2 = agentData.critique || 'Critique received';
-          results[role].round2Parsed = agentData;
-          continue;
-        } catch { /* fall through */ }
+      const agentData = extractAgentJSON(cleaned, role);
+      if (agentData) {
+        results[role].round2 = agentData.critique || 'Critique received';
+        results[role].round2Parsed = agentData;
+      } else {
+        results[role].round2 = 'Critique could not be parsed. Please try again.';
+        results[role].round2Parsed = { critique: 'Critique could not be parsed', agreements: [], disagreements: [] };
       }
-      results[role].round2 = 'Critique could not be parsed. Please try again.';
-      results[role].round2Parsed = { critique: 'Critique could not be parsed', agreements: [], disagreements: [] };
     }
   }
   console.log('[Round 2] Complete');
@@ -257,7 +277,7 @@ exports.runRound1 = async (idea, options = {}) => {
   const providerOptions = { provider: providerName, apiKey };
 
   console.log('[Round 1] Calling AI for all 6 agent evaluations...');
-  const round1Raw = await generateResponse(buildRound1Prompt(idea), { ...providerOptions, maxTokens: 3000 });
+  const round1Raw = await generateResponse(buildRound1Prompt(idea), { ...providerOptions, maxTokens: 4500 });
   console.log('[Round 1] Raw response (first 300 chars):', round1Raw.substring(0, 300));
   const round1Parsed = parseJSON(round1Raw);
 
@@ -273,16 +293,12 @@ exports.runRound1 = async (idea, options = {}) => {
     console.warn('[Round 1] JSON parse failed — partial extraction');
     const cleaned = cleanResponse(round1Raw);
     for (const role of ROLE_NAMES) {
-      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
-      const roleMatch = cleaned.match(roleRegex);
-      if (roleMatch) {
-        try {
-          const agentData = JSON.parse(roleMatch[1]);
-          results[role] = { assessment: agentData.assessment || '', score: agentData.score || 50, risks: agentData.risks || [], recommendation: agentData.recommendation || '' };
-          continue;
-        } catch { /* fall through */ }
+      const agentData = extractAgentJSON(cleaned, role);
+      if (agentData) {
+        results[role] = { assessment: agentData.assessment || '', score: agentData.score || 50, risks: agentData.risks || [], recommendation: agentData.recommendation || '' };
+      } else {
+        results[role] = { assessment: 'Evaluation could not be parsed', score: 50, risks: [], recommendation: '' };
       }
-      results[role] = { assessment: 'Evaluation could not be parsed', score: 50, risks: [], recommendation: '' };
     }
   }
   console.log('[Round 1] Complete');
@@ -301,7 +317,7 @@ exports.runRound2 = async (idea, round1Agents, options = {}) => {
   }).join('\n');
 
   console.log('[Round 2] Calling AI for all 6 agent critiques...');
-  const round2Raw = await generateResponse(buildRound2Prompt(idea, summary), { ...providerOptions, maxTokens: 3000 });
+  const round2Raw = await generateResponse(buildRound2Prompt(idea, summary), { ...providerOptions, maxTokens: 4500 });
   console.log('[Round 2] Raw response (first 300 chars):', round2Raw.substring(0, 300));
   const round2Parsed = parseJSON(round2Raw);
 
@@ -317,16 +333,12 @@ exports.runRound2 = async (idea, round1Agents, options = {}) => {
     console.warn('[Round 2] JSON parse failed — partial extraction');
     const cleaned = cleanResponse(round2Raw);
     for (const role of ROLE_NAMES) {
-      const roleRegex = new RegExp(`"${role}"\\s*:\\s*(\\{[^}]*\\})`, 's');
-      const roleMatch = cleaned.match(roleRegex);
-      if (roleMatch) {
-        try {
-          const agentData = JSON.parse(roleMatch[1]);
-          results[role] = { critique: agentData.critique || '', agreements: agentData.agreements || [], disagreements: agentData.disagreements || [] };
-          continue;
-        } catch { /* fall through */ }
+      const agentData = extractAgentJSON(cleaned, role);
+      if (agentData) {
+        results[role] = { critique: agentData.critique || '', agreements: agentData.agreements || [], disagreements: agentData.disagreements || [] };
+      } else {
+        results[role] = { critique: 'Critique could not be parsed', agreements: [], disagreements: [] };
       }
-      results[role] = { critique: 'Critique could not be parsed', agreements: [], disagreements: [] };
     }
   }
   console.log('[Round 2] Complete');
@@ -386,16 +398,22 @@ exports.runSimulationStream = async (idea, options = {}, onEvent) => {
   console.log('[Stream Round 1] Calling AI for all 6 evaluations...');
   let results = {};
   try {
-    const round1Raw = await generateResponse(buildRound1Prompt(idea), { ...providerOptions, maxTokens: 3000 });
+    const round1Raw = await generateResponse(buildRound1Prompt(idea), { ...providerOptions, maxTokens: 4500 });
     console.log('[Stream Round 1] Raw (first 500):', round1Raw.substring(0, 500));
     const round1Parsed = parseJSON(round1Raw);
 
     if (round1Parsed) {
       results = processRound1(round1Parsed, memory);
     } else {
-      console.warn('[Stream Round 1] JSON parse failed — using fallback');
+      console.warn('[Stream Round 1] JSON parse failed — attempting partial extraction');
+      const cleaned = cleanResponse(round1Raw);
       for (const role of ROLE_NAMES) {
-        results[role] = { round1: 'Evaluation received (parse error)', round1Parsed: { assessment: 'Evaluation received but JSON parsing failed', score: 50, risks: [], recommendation: '' } };
+        const agentData = extractAgentJSON(cleaned, role);
+        if (agentData) {
+          results[role] = { round1: agentData.assessment || 'Evaluation received', round1Parsed: agentData };
+        } else {
+          results[role] = { round1: 'Evaluation received (parse error)', round1Parsed: { assessment: 'Evaluation received but JSON parsing failed', score: 50, risks: [], recommendation: '' } };
+        }
       }
     }
 
@@ -426,7 +444,7 @@ exports.runSimulationStream = async (idea, options = {}, onEvent) => {
   console.log('[Stream Round 2] Calling AI for all 6 critiques...');
   try {
     const summary = memory.getSummary();
-    const round2Raw = await generateResponse(buildRound2Prompt(idea, summary), { ...providerOptions, maxTokens: 3000 });
+    const round2Raw = await generateResponse(buildRound2Prompt(idea, summary), { ...providerOptions, maxTokens: 4500 });
     const round2Parsed = parseJSON(round2Raw);
 
     if (!round2Parsed) {

@@ -36,9 +36,11 @@ const generateResponse = async (prompt, options = {}) => {
     return await primary.provider.generate(prompt, { maxTokens });
   } catch (error) {
     const shouldFallback = error.status === 429 || error.status === 402
+      || error.status === 500 || error.status === 502 || error.status === 503
       || error.message?.includes('429') || error.message?.includes('402')
       || error.message?.includes('rate limit') || error.message?.includes('quota')
-      || error.message?.includes('PAYMENT') || error.message?.includes('balance');
+      || error.message?.includes('PAYMENT') || error.message?.includes('balance')
+      || error.message?.includes('503') || error.message?.includes('server');
 
     if (shouldFallback) {
       const fallbacks = FALLBACK_CHAIN[primary.name] || [];
@@ -51,6 +53,7 @@ const generateResponse = async (prompt, options = {}) => {
           return await fallback.provider.generate(prompt, { maxTokens });
         } catch (fallbackError) {
           const fallbackFailed = fallbackError.message?.includes('429') || fallbackError.message?.includes('402')
+            || fallbackError.message?.includes('503') || fallbackError.message?.includes('server')
             || fallbackError.message?.includes('rate limit') || fallbackError.message?.includes('PAYMENT');
           if (fallbackFailed) {
             console.warn(`[Fallback] ${fallbackName} also failed, trying next...`);
