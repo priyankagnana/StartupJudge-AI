@@ -65,7 +65,7 @@ const SignupPage = () => {
           {/* Google OAuth */}
           <button
             type="button"
-            onClick={() => { window.location.href = `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/auth/google`; }}
+            onClick={() => { window.location.href = `${(import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace(/\/api$/, '')}/api/auth/google`; }}
             style={{ border: '2px solid var(--google-btn-border)' }}
             className="w-full bg-surface hover:opacity-80 text-text-primary font-medium py-3 rounded-lg text-sm flex items-center justify-center gap-3 transition-all mb-6"
           >
