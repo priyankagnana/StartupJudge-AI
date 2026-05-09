@@ -130,7 +130,7 @@ const ChatMessage = ({ role, round, content, score, risks, isSystem, isDecision,
 
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>{config.name}</span>
           <span style={{
             fontSize: '0.65rem',
