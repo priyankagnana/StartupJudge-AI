@@ -6,12 +6,13 @@ const KEY_MAP = {
   cerebras: 'CEREBRAS_API_KEY',
   gemini: 'GEMINI_API_KEY',
   groq: 'GROQ_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
 };
 
 const FALLBACK_CHAIN = {
-  cerebras: ['gemini', 'groq'],
-  gemini: ['cerebras', 'groq'],
-  groq: ['cerebras', 'gemini'],
+  cerebras: ['gemini', 'groq', 'openrouter'],
+  gemini: ['cerebras', 'groq', 'openrouter'],
+  groq: ['cerebras', 'gemini', 'openrouter'],
 };
 
 function resolveProvider(providerName, apiKey) {
@@ -36,8 +37,9 @@ const generateResponse = async (prompt, options = {}) => {
     return await primary.provider.generate(prompt, { maxTokens });
   } catch (error) {
     const shouldFallback = error.status === 429 || error.status === 402
-      || error.status === 500 || error.status === 502 || error.status === 503
+      || error.status === 404 || error.status === 500 || error.status === 502 || error.status === 503
       || error.message?.includes('429') || error.message?.includes('402')
+      || error.message?.includes('404') || error.message?.includes('does not exist')
       || error.message?.includes('rate limit') || error.message?.includes('quota')
       || error.message?.includes('PAYMENT') || error.message?.includes('balance')
       || error.message?.includes('503') || error.message?.includes('server');

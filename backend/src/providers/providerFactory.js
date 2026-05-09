@@ -3,11 +3,13 @@
 const GeminiProvider = require('./geminiProvider');
 const GroqProvider = require('./groqProvider');
 const CerebrasProvider = require('./cerebrasProvider');
+const OpenRouterProvider = require('./openrouterProvider');
 
 const providers = {
   gemini: GeminiProvider,
   groq: GroqProvider,
   cerebras: CerebrasProvider,
+  openrouter: OpenRouterProvider,
 };
 
 function createProvider(name, apiKey) {

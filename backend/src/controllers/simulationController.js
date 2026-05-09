@@ -1,6 +1,7 @@
 // src/controllers/simulationController.js
 
 const orchestratorService = require('../services/orchestratorService');
+const { generateQuestionsForIdea } = require('../services/questionService');
 
 exports.startSimulation = async (req, res) => {
   try {
@@ -21,6 +22,25 @@ exports.startSimulation = async (req, res) => {
         : (error.message || 'Something went wrong during simulation'),
       code: is429 ? 'RATE_LIMIT' : 'SERVER_ERROR',
     });
+  }
+};
+
+exports.generateQuestions = async (req, res) => {
+  try {
+    const { idea, provider, apiKey } = req.body;
+    if (!idea) return res.status(400).json({ error: 'Idea is required' });
+
+    console.log(`[Questions API] idea="${idea.substring(0, 50)}..."`);
+    const questions = await generateQuestionsForIdea(idea, { provider, apiKey });
+
+    if (!questions) {
+      return res.status(200).json({ questions: null });
+    }
+
+    res.json({ questions });
+  } catch (error) {
+    console.error('[Questions API] Failed:', error.message);
+    res.status(200).json({ questions: null });
   }
 };
 

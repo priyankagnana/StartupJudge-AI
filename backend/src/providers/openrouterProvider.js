@@ -1,18 +1,16 @@
-// src/providers/cerebrasProvider.js
-
 const BaseProvider = require('./baseProvider');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-class CerebrasProvider extends BaseProvider {
+class OpenRouterProvider extends BaseProvider {
   constructor(apiKey) {
     super(apiKey);
-    this.baseUrl = 'https://api.cerebras.ai/v1/chat/completions';
-    this.model = 'llama3.1-8b';
+    this.baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
+    this.model = 'google/gemma-4-31b-it:free';
   }
 
   async generate(prompt, options = {}) {
-    const { maxTokens = 400, retries = 2 } = options;
+    const { maxTokens = 400, retries = 1 } = options;
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -21,6 +19,8 @@ class CerebrasProvider extends BaseProvider {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`,
+            'HTTP-Referer': 'https://startupjudge.ai',
+            'X-Title': 'StartupJudge AI',
           },
           body: JSON.stringify({
             model: this.model,
@@ -36,31 +36,21 @@ class CerebrasProvider extends BaseProvider {
 
         if (response.status === 429) {
           const waitTime = attempt * 10000;
-          console.warn(`[Cerebras 429] Retry ${attempt}/${retries} in ${waitTime / 1000}s...`);
-          if (attempt === retries) throw new Error('Cerebras rate limit exceeded');
+          console.warn(`[OpenRouter 429] Retry ${attempt}/${retries} in ${waitTime / 1000}s...`);
+          if (attempt === retries) throw new Error('OpenRouter rate limit exceeded');
           await sleep(waitTime);
           continue;
         }
 
         if (!response.ok) {
           const errorBody = await response.text();
-          throw new Error(`Cerebras API error ${response.status}: ${errorBody}`);
+          throw new Error(`OpenRouter API error ${response.status}: ${errorBody}`);
         }
 
         const data = await response.json();
-        const content = data.choices[0].message.content;
-
-        // Detect garbage responses (control chars filling >10% of output)
-        const controlChars = (content.match(/[\x00-\x1F\x7F]/g) || []).length;
-        if (controlChars > content.length * 0.1) {
-          console.warn(`[Cerebras] Garbage response detected (${controlChars}/${content.length} control chars), retry ${attempt}/${retries}`);
-          if (attempt < retries) { await sleep(2000); continue; }
-          // Last attempt — still return it, cleanResponse will strip the junk
-        }
-
-        return content;
+        return data.choices[0].message.content;
       } catch (error) {
-        if ((error.message?.includes('429') || error.message?.includes('503')) && attempt < retries) {
+        if (error.message?.includes('429') && attempt < retries) {
           await sleep(attempt * 5000);
           continue;
         }
@@ -70,4 +60,4 @@ class CerebrasProvider extends BaseProvider {
   }
 }
 
-module.exports = CerebrasProvider;
+module.exports = OpenRouterProvider;
