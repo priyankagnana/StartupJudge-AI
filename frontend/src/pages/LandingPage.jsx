@@ -12,12 +12,12 @@ import { useTheme } from '../context/ThemeContext';
 import HeroDebatePreview from '../components/HeroDebatePreview';
 
 const AGENTS = [
-  { name: 'Priya Sharma', role: 'CFO', focus: 'Unit economics, burn rate, path to profitability', color: '#22c55e', icon: TrendingUp },
-  { name: 'Arjun Mehta', role: 'CTO', focus: 'Tech stack, scalability, MVP timeline', color: '#3b82f6', icon: Zap },
-  { name: 'Kavita Iyer', role: 'Legal', focus: 'Compliance, IP risks, regulatory hurdles', color: '#f59e0b', icon: Scale },
-  { name: 'Rahul Kapoor', role: 'Marketing', focus: 'Go-to-market, pricing, viral mechanics', color: '#a855f7', icon: Megaphone },
-  { name: 'Meera Patel', role: 'HR', focus: 'Hiring plan, talent gaps, team structure', color: '#ec4899', icon: UserCheck },
-  { name: 'Vikram Rao', role: 'Market Research', focus: 'Competitors, TAM sizing, market timing', color: '#06b6d4', icon: Search },
+  { name: 'Priya Sharma', role: 'CFO', title: 'Ex-Kotak Investment Banker', focus: 'Unit economics in INR, CAC/LTV, burn rate, path to profitability', color: '#22c55e', icon: TrendingUp },
+  { name: 'Arjun Mehta', role: 'CTO', title: 'Ex-Flipkart, YC-backed Founder', focus: 'Tech stack, scalability, MVP timeline, API limits (UPI, Razorpay)', color: '#3b82f6', icon: Zap },
+  { name: 'Kavita Iyer', role: 'Legal', title: '10 yrs Indian Tech Law', focus: 'DPDPA 2023, IT Act, RBI compliance, GST, data localization', color: '#f59e0b', icon: Scale },
+  { name: 'Rahul Kapoor', role: 'Marketing', title: 'Scaled 2 D2C Startups', focus: 'Go-to-market, Instagram/WhatsApp growth, pricing strategy', color: '#a855f7', icon: Megaphone },
+  { name: 'Meera Patel', role: 'HR', title: 'Built Teams 3 to 150', focus: 'Hiring plans, salaries in LPA, Tier 1/2 talent dynamics', color: '#ec4899', icon: UserCheck },
+  { name: 'Vikram Rao', role: 'Market Research', title: 'Ex-Bain Consultant', focus: 'Competitors by name, TAM sizing, Inc42/RedSeer data', color: '#06b6d4', icon: Search },
 ];
 
 const STEPS = [
@@ -281,6 +281,7 @@ const LandingPage = () => {
                     <div className="text-xs font-medium" style={{ color: agent.color }}>{agent.role}</div>
                   </div>
                 </div>
+                <p className="text-text-secondary text-xs font-medium mb-2">{agent.title}</p>
                 <p className="text-text-muted text-sm leading-relaxed">{agent.focus}</p>
               </motion.div>
             ))}
